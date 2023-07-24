@@ -1,0 +1,341 @@
+// Section 2
+F := Rationals();
+F<b> := FunctionField(F);
+PR<x> := PolynomialRing(F);
+F<sb> := ext<F | x^2 - b>;
+A4<X0,Y0,X1,Y1> := AffineSpace(F, 4);
+A3y<ty,y0,y1> := AffineSpace(F, 3);
+A3z<tz,z0,z1> := AffineSpace(F, 3);
+A2<Z0,Z1> := AffineSpace(F, 2);
+A1<t> := AffineSpace(F, 1);
+
+Eb2 := Surface(A4, [ Y0^2 - (X0^3 + b), Y1^2 - (X1^3 + b) ]);
+GK23 := Surface(A3y, (y1^2 - b)*ty^3 - (y0^2 - b) );
+GK23pr := Surface(A3z, -z0^2 + tz*z1^2 + b*(1 - tz^3) );
+S := Surface(A3y, ty*y0^2 - y1^2 + b*(ty^2 + ty + 1) );
+T := Surface(A3z, tz*z0^2 - z1^2 + b );
+
+phi23 := map<Eb2 -> GK23 | [X0/X1, Y0, Y1]>;
+tau := map<GK23 -> GK23pr | [ty, y0, ty*y1]>;
+theta := map<GK23pr -> S | [ tz, (z0-z1)/(1-tz), (z0-tz*z1)/(1-tz) ]>;
+eta := map<S -> T | [ ty, 
+    ((ty+1)*y0 + y1)/(ty^2 + ty + 1), (ty*y0 + (ty+1)*y1)/(ty^2 + ty + 1) ]>;
+pr := map<T -> A2 | [z0, z1]>;
+
+tauInv := map<GK23pr -> GK23 | [tz, z0, z1/tz]>;
+thetaInv := map<S -> GK23pr | [ ty, -ty*y0 + y1, -y0 + y1 ]>;
+etaInv := map<T -> S | [ tz, (tz+1)*z0 - z1, -tz*z0 + (tz+1)*z1 ]>;
+prInv := map<A2 -> T | [ (Z1^2 - b)/Z0^2, Z0, Z1 ]>;
+
+psi23 := tau*theta*eta*pr;
+chi23 := Normalization(Expand(phi23*psi23));
+psi23Inv := Normalization(Expand(prInv*etaInv*thetaInv*tauInv));
+chi23 eq map<Eb2 -> A2 | [
+    X1*( 2*X0^2*Y1 - X0*X1*(Y0 - Y1) - 2*Y0*X1^2 )/(Y0^2 - Y1^2),
+    ( X0^3*Y1 + 2*X0*X1*(X0*Y1 - Y0*X1) - Y0*X1^3 )/(Y0^2 - Y1^2)
+]>;
+psi23Inv eq map<A2 -> GK23 | [
+    ( Z1^2 - b )/Z0^2,
+    ( Z0^3*Z1 - 2*Z0*(Z0 - Z1)*(Z1^2 - b) - (Z1^2 - b)^2 )/Z0^3,
+    -( Z0^2*(Z0 - 2*Z1) + (2*Z0 - Z1)*(Z1^2 - b) )/(Z1^2 - b)
+]>;
+
+rhoPl := map<A1 -> GK23 | [ t, sb*(2*t + 1), sb*(t + 2)/t ]>;
+rhoMin := map<A1 -> GK23 | [ t, -sb*(2*t + 1), -sb*(t + 2)/t ]>;
+Normalization(Expand(rhoPl*psi23));
+Normalization(Expand(rhoMin*psi23));
+
+
+
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+
+
+
+// Section 3
+// Parameters of the BLS12-377 curve (in the projective coordinates)
+u := 9586122913090633729;
+r := u^4 - u^2 + 1;
+q := ((u - 1)^2 * r) div 3 + u;
+assert( IsPrimePower(q) );
+assert( Ceiling(Log(2,q)) eq 377 );
+assert( (q - 7) mod 9 eq 0 );
+d := (q - 1) div 3;
+e := (q - 7) div 9;
+
+F := GF(q);
+sb := F ! 1;
+b := sb^2;
+beta := 1/(2*sb);
+PR<t> := PolynomialRing(F);
+w := Roots(t^2 + t + 1)[1][1];
+w2 := w^2;
+
+P2<X,Y,Z> := ProjectiveSpace(F, 2);
+Eb := Curve(P2, Y^2*Z - X^3 - b*Z^3);
+auto := map<Eb -> Eb | [w*X, -Y, Z]>;
+EbF := Eb(F);
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+// Generating a pair of random Fq-points on Eb for the degenerate cases l = 0 or l = 1.
+// Unlike (de)com23, this function is not optimized, 
+// because it is not a part of the new compression-decompression method.
+pairGen := function(l)
+    if l eq 0 then
+        k := Random(5);
+        P0 := Random(EbF);
+        P1 := P0;
+        for i := 0 to k-1 do
+            P1 := auto(P1);
+        end for;
+        return P0, P1;
+    end if;
+    
+    // l eq 1
+    r := w;
+    while r ne 1 do
+        t := Random(F);
+        assert(t ne 0);
+        y1 := sb*(t + 2)/t;
+        g1 := y1^2 - b;
+        r := g1^d;
+    end while;
+
+    k := Random(1);
+    y0 := (-1)^k*sb*(2*t + 1);
+    y1 := (-1)^k*y1;
+    x1 := g1^(e+1);
+    x0 := t*x1;
+    P0 := Eb ! [x0, y0, 1];
+    P1 := Eb ! [x1, y1, 1];
+    return P0, P1;
+end function;
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+// Compression
+com23 := function(P0, P1)
+    X0 := P0[1]; Y0 := P0[2]; Z0 := P0[3];
+    X1 := P1[1]; Y1 := P1[2]; Z1 := P1[3];
+    assert(X0*Y0*Z0*X1*Y1*Z1 ne 0);
+    
+    // l eq 0
+    Q := P0;
+    k := 0;
+    while k le 5 do
+        if Q eq P1 then
+            break;
+        end if;
+        Q := auto(Q);
+        k := k + 1;
+    end while;
+
+    if k le 5 then
+        Z0Inv := 1/Z0;
+        x0 := X0*Z0Inv;
+        y0 := Y0*Z0Inv;
+        return x0, y0, k, 0;
+    end if;
+    
+    // l eq 1 
+    Y0Y1 := Y0*Y1;
+    Z0Z1 := Z0*Z1;
+    Y0Z1 := Y0*Z1;
+    Z0Y1 := Z0*Y1;
+    U := Y0Y1 - 3*b*Z0Z1;
+    V := sb*(Y0Z1 + Z0Y1);
+
+    k := 0;
+    while k le 1 do
+        if U eq (-1)^k*V then
+            break;
+        end if;
+        k := k + 1;
+    end while;
+
+    if k le 1 then
+        v := 1/Z0Z1;
+        Z0Inv := v*Z1;
+        Z1Inv := v*Z0;
+        t := (-1)^k*beta*(Y0 - (-1)^k*sb*Z0)*Z0Inv;
+        x1 := X1*Z1Inv;
+        return t, x1, k, 1;
+    end if; 
+
+    // l eq 2
+    X02 := X0^2;
+    X12 := X1^2;
+    X0X1 := X0*X1;
+    Y0Z0 := Y0*Z0;
+    Y1Z1 := Y1*Z1;
+    XYZ := X02*Y1Z1;
+    YZX := Y0Z0*X12;
+    X0Z1 := X0*Z1;
+    Z0X1 := Z0*X1;
+    num0 := ( 2*(YZX - XYZ) + X0X1*(Y0Z1 - Z0Y1) )*Z0X1;
+    num1 := YZX*(Z0X1 + 2*X0Z1) - (2*Z0X1 + X0Z1)*XYZ;
+    den := (Z0Y1^2 - Y0Z1^2)*Z0Z1;
+
+    v := 1/(Z1*den);
+    Z1Inv := den*v;
+    denInv := Z1*v;
+    x1 := X1*Z1Inv;
+    L := [x1, x1*w, x1*w2];
+    Sort(~L);
+    n := Index(L, x1);
+    z0 := num0*denInv;
+    z1 := num1*denInv;
+    return z0, z1, n, 2;
+end function;
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+// Decompression
+decom23 := function(z0, z1, m, l)
+    if l eq 0 then 
+        Q0 := Eb ! [z0, z1, 1];
+        Q1 := Eb ! [w^m*z0, (-1)^m*z1, 1];
+        return Q0, Q1;
+    end if;
+
+    twoz0 := 2*z0;
+    if l eq 1 then
+        c := (-1)^m*sb;
+        y0 := c*(twoz0 + 1);
+        Y1 := c*(z0 + 2);
+        x0 := z0*z1;
+        Q0 := Eb ! [x0, y0, 1];
+        Q1 := Eb ! [x0, Y1, z0];
+        return Q0, Q1;
+    end if; 
+    
+    // l eq 2   
+    z02 := z0^2;
+    Z0 := z0*z02;
+    Z1 := z1^2 - b;
+    twoz1 := 2*z1;
+    v := Z1^2;
+    Y0 := Z0*z1 - twoz0*(z0 - z1)*Z1 - v;
+    Y1 := -( z02*(z0 - twoz1) + (twoz0 - z1)*Z1 );
+
+    u := Y1^2 - b*v;
+    v2 := v^2;
+    v4 := v2^2;
+    v5 := v*v4;
+    v8 := v4^2;
+    x1 := u*v5*(u*v8)^e;
+    
+    L := [x1, x1*w, x1*w2];
+    Sort(~L);
+    x1 := L[m];
+    X1 := x1*Z1;
+    X0 := z0*X1;    
+    Q0 := Eb ! [X0, Y0, Z0];
+    Q1 := Eb ! [X1, Y1, Z1];
+    return Q0, Q1;  
+end function;
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+// Main
+// l := Random(1);
+// P0, P1 := pairGen(l);
+P0 := Random(EbF);
+P1 := Random(EbF);
+z0, z1, m, l := com23(P0, P1);
+Q0, Q1 := decom23(z0, z1, m, l);
+Q0 eq P0; 
+Q1 eq P1;
+
+
+
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+
+
+
+// Appendix A
+F<sq6> := QuadraticField(6);
+A2<z0,z1> := AffineSpace(F, 2);
+A3<t,y0,y1> := AffineSpace(F, 3);
+alp := 3*t^2 - 1;
+beta := t*(t^2 - 3);
+GKb := Surface(A3, alp*(y0^2 - y1^2 - 4) - beta*(2*y0*y1 - 4) );
+
+f0 := 6*( (7*sq6 - 13)*t^3 - 13*t^2 + (3*sq6 - 1)*t - 1 );
+f1 := 3*sq6*alp*( (sq6 - 3)*t^2 + sq6*t - 1 );
+g0 := 3*( (sq6 + 2)*t^4 + 2*t^3 - 2*(4*sq6 - 5)*t^2 + 10*t - sq6 );
+g1 := 6*alp*( (sq6 - 1)*t - 1 );
+numz0 := f0*y0 + f1*y1;
+numz1 := -sq6*alp*(t^2 - 4*t + 1);
+denz := g0*y0 + g1*y1;
+tau := map<GKb -> A2 | [numz0/denz, numz1/denz]>;
+
+numt := z0^2 + 12*z1^2 - 1;
+dent := -2*(z0 + 6*z1^2);
+t := numt/dent;
+alp := 3*t^2 - 1;
+Z0 := (z0*dent + numt)/(z1*dent);
+Z1 := 1/z1;
+
+F0 := 2*( (sq6 - 1)*t - 1 );
+F1 := (sq6 - 4)*t^2 - 4*t + sq6;
+G0 := -(sq6 + 2)*t^4 - 2*t^3 + 2*(4*sq6 - 5)*t^2 - 10*t + sq6;
+G1 := (sq6 + 2)*t^5 + 2*t^4 + 2*(3*sq6 - 8)*t^3 - 16*t^2 + (5*sq6 - 2)*t - 2;
+numy0 := alp*( F0*Z0 + F1*Z1 );
+numy1 := G0*Z0 + G1*Z1;
+deny := -sq6*alp*(t^2 + 1);
+tauInv := map<A2 -> GKb | [t, numy0/deny, numy1/deny]>;
+
+tau*tauInv eq IdentityMap(GKb);
+tauInv*tau eq IdentityMap(A2);
+
+
+
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+
+
+
+// Appendix B
+F := Rationals();
+F<b0,b1,g> := FunctionField(F, 3);
+A3<X0,X1,Y> := AffineSpace(F, 3);
+A4<x0,x1,y0,y1> := AffineSpace(F, 4);
+
+p0 := x0^3 + 3*g*x0*x1^2 + b0;
+p1 := g*x1^3 + 3*x0^2*x1 + b1;
+Rb := Surface(A4, [
+    y0^2 + g*y1^2 - p0,
+    2*y0*y1 - p1
+]);
+
+com := map<Rb -> A3 | [x0, x1, y0+y1]>;
+Im := Image(com);
+com := Restriction(com, Rb, Im);
+
+p0 := X0^3 + 3*g*X0*X1^2 + b0;
+p1 := g*X1^3 + 3*X0^2*X1 + b1;
+Y1 := ( 2*(p0 - Y^2) + (g+1)*p1 )/( 2*(g-1)*Y );
+decom := map<Im -> Rb | [X0, X1, Y-Y1, Y1]>;
+com*decom eq IdentityMap(Rb);
